@@ -25,35 +25,29 @@ const allyRange = balSheet.getRange(2, 2);
 const lmcuRange = balSheet.getRange(2, 3);
 
 function setBalances() {
-    const lmcuBal = getLMCUBal();
+    const lmcuBal = getTotalBalanceAtBank(lmcu.accessToken, LMCUBalanceAdder);
     lmcuRange.setValue(lmcuBal);
-    const allyPayload = Object.assign({}, basePayload, { access_token: ally.accessToken });
-    const allyRes = UrlFetchApp.fetch('https://development.plaid.com/accounts/balance/get', {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(allyPayload),
-    });
-    const allyObj = JSON.parse(allyRes.getContentText());
-    const allyAmount = getBal(allyObj.accounts[0]);
-    allyRange.setValue(allyAmount);
+    const allyBal = getTotalBalanceAtBank(ally.accessToken, (acc, cur) => acc + getBal(cur));
+    allyRange.setValue(allyBal);
 }
 
-function getLMCUBal() {
-    const lmcuPayload = Object.assign({}, basePayload, { access_token: lmcu.accessToken });
+function getTotalBalanceAtBank(accessToken, balanceAdder) {
+    const payload = Object.assign({}, basePayload, { access_token: accessToken });
     const res = UrlFetchApp.fetch('https://development.plaid.com/accounts/balance/get', {
         method: 'post',
         contentType: 'application/json',
-        payload: JSON.stringify(lmcuPayload),
+        payload: JSON.stringify(payload),
     });
-    const obj = JSON.parse(res.getContentText());
-    const sum = obj.accounts.reduce((acc, cur) => {
-        if (cur.account_id == realEstateAccountId) {
-            return acc;
-        } else {
-            return acc + getBal(cur);
-        }
-    }, 0);
-    return sum;
+    const responseObj = JSON.parse(res.getContentText());
+    return responseObj.accounts.reduce(balanceAdder, 0);
+}
+
+function LMCUBalanceAdder(acc, cur) {
+    if (cur.account_id == realEstateAccountId) {
+        return acc;
+    } else {
+        return acc + getBal(cur);
+    }
 }
 
 function getBal(account) {
