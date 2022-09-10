@@ -1,53 +1,52 @@
-const lmcu = {
-    itemId: PropertiesService.getScriptProperties().getProperty('lmcuItemId'),
-    accessToken: PropertiesService.getScriptProperties().getProperty('lmcuAccessToken'),
-};
+const balSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('-Balance Sheet');
 
-const ally = {
-    itemId: PropertiesService.getScriptProperties().getProperty('allyItemId'),
-    accessToken: PropertiesService.getScriptProperties().getProperty('allyAccessToken'),
-};
+//the names in each object aren't needed. They're just there to make it easier to know
+//which institution is which
+const institutions = [
+    {
+        name: 'ally',
+        accessToken: PropertiesService.getScriptProperties().getProperty('allyAccessToken'),
+        cell: balSheet.getRange(2, 2),
+    },
+    {
+        name: 'lmcu',
+        accessToken: PropertiesService.getScriptProperties().getProperty('lmcuAccessToken'),
+        cell: balSheet.getRange(2, 3),
+    },
+    {
+        name: 'schwab',
+        accessToken: PropertiesService.getScriptProperties().getProperty('schwabAccessToken'),
+        cell: balSheet.getRange(2, 5),
+    },
+];
 
-const plaid = {
+const plaidCreds = {
     secret: PropertiesService.getScriptProperties().getProperty('plaidSecret'),
-    clientId: PropertiesService.getScriptProperties().getProperty('plaidClientId'),
+    client_id: PropertiesService.getScriptProperties().getProperty('plaidClientId'),
 };
 
-const realEstateAccountId = 'Re7JNLPVKmUAmo7wE617cn3b6YjMY9f97749v';
-
-const basePayload = {
-    client_id: plaid.clientId,
-    secret: plaid.secret,
-};
-
-const balSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Balances');
-const allyRange = balSheet.getRange(2, 2);
-const lmcuRange = balSheet.getRange(2, 3);
-
-function setBalances() {
-    const lmcuBal = getTotalBalanceAtBank(lmcu.accessToken, LMCUBalanceAdder);
-    lmcuRange.setValue(lmcuBal);
-    const allyBal = getTotalBalanceAtBank(ally.accessToken, (acc, cur) => acc + getBal(cur));
-    allyRange.setValue(allyBal);
-}
-
-function getTotalBalanceAtBank(accessToken, balanceAdder) {
-    const payload = Object.assign({}, basePayload, { access_token: accessToken });
-    const res = UrlFetchApp.fetch('https://development.plaid.com/accounts/balance/get', {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
+function getTotalBalances() {
+    const requests = getRequestObjs();
+    const responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach((response, i) => {
+        const responseObj = JSON.parse(response.getContentText());
+        const totalBalanceAtBank = responseObj.accounts.reduce((acc, cur) => acc + getBal(cur), 0);
+        institutions[i].cell.setValue(totalBalanceAtBank);
     });
-    const responseObj = JSON.parse(res.getContentText());
-    return responseObj.accounts.reduce(balanceAdder, 0);
 }
 
-function LMCUBalanceAdder(acc, cur) {
-    if (cur.account_id == realEstateAccountId) {
-        return acc;
-    } else {
-        return acc + getBal(cur);
-    }
+function getRequestObjs() {
+    return institutions.map((institution) => {
+        return {
+            payload: JSON.stringify({
+                ...plaidCreds,
+                access_token: institution.accessToken,
+            }),
+            url: 'https://development.plaid.com/accounts/balance/get',
+            method: 'POST',
+            contentType: 'application/json',
+        };
+    });
 }
 
 function getBal(account) {
